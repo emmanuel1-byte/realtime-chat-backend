@@ -8,10 +8,7 @@ export function verifyJwt(token) {
     const decoded = jwt.verify(token, JWT_SECRET);
     return { userId: decoded.sub };
   } catch (err) {
-    if (err instanceof jwt.TokenExpiredError) {
-      throw new Error("Access token expired");
-    }
-    throw new Error("Invalid access token");
+    throw err;
   }
 }
 

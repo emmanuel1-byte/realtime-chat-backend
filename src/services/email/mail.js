@@ -32,5 +32,6 @@ async function sendEmail(data) {
 }
 mailer.on("verificationEmail", async (data) => await sendEmail(data));
 mailer.on("passwordResetEmail", async (data) => await sendEmail(data));
+mailer.on("resendVerficationEmail", async (data) => await sendEmail(data));
 
 export default mailer;

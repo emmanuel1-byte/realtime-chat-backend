@@ -9,6 +9,7 @@ import {
   fetchTokenSchema,
   forgotPasswordSchema,
   updatePasswordSchema,
+  resendVerificationEmailSchema,
 } from "./schema.js";
 import mailer from "../../services/email/mail.js";
 import {
@@ -46,10 +47,33 @@ export async function verifyAccount(req, res, next) {
     const params = await fetchTokenSchema.validateAsync(req.params);
     const { userId } = verifyJwt(params.token);
     const user = await respository.fetchUserById(userId);
-    user.verified = true;
-    user.save();
     if (!user) return respond(res, 404, "User does not exist");
+    if (user.verified === false) {
+      user.verified = true;
+      await user.save();
+    }
     return respond(res, 200, "Token is valid");
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function resendVerificationEmail(req, res, next) {
+  try {
+    const validatedData = await resendVerificationEmailSchema.validateAsync(
+      req.body,
+    );
+    const user = await respository.fetchUserByEmail(validatedData.email);
+    if (!user) return respond(res, 404, "User not found");
+    if (user.verified === true)
+      return respond(res, 409, "Email verified already!");
+    const { verificationToken } = generateVerificationToken(user._id);
+    mailer.emit("resendVerficationEmail", {
+      to: user.email,
+      subject: "Email verification",
+      body: `${HOSTNAME}/api/auth/verify-account/${verificationToken}`,
+    });
+    return respond(res, 200, "Verfication email sent successfully");
   } catch (err) {
     next(err);
   }
@@ -60,7 +84,7 @@ export async function login(req, res, next) {
     const validatedData = await loginSchema.validateAsync(req.body);
     const user = await respository.fetchUserByEmail(validatedData.email);
     if (!user) return respond(res, 404, "User does not exist");
-    if (!user.verified) return respond(res, 401, "verify your email");
+    if (user.verified === false) return respond(res, 401, "verify your email");
     const isPasswordValid = await bcrypt.compare(
       validatedData.password,
       user.password,
@@ -110,7 +134,7 @@ export async function resetPassword(req, res, next) {
     const { userId } = verifyJwt(validatedData.token);
     const user = await respository.fetchUserById(userId);
     if (!user) return respond(res, 404, "User does not exist");
-    respository.updatePassword(userId, validatedData);
+    await respository.updatePassword(userId, validatedData);
     return respond(res, 200, "Passsord updated successfully");
   } catch (err) {
     next(err);
@@ -119,7 +143,8 @@ export async function resetPassword(req, res, next) {
 
 export async function refreshToken(req, res, next) {
   try {
-    const user = await respository.fetchUserById(req.userId);
+    const { userId } = verifyJwt(req.cookies.refreshToken);
+    const user = await respository.fetchUserById(userId);
     if (!user) return respond(res, 404, "User not found");
     const { accessToken } = generateAccessToken(user._id);
     const { refreshToken } = generateRefreshToken(user._id);

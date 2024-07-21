@@ -3,6 +3,7 @@ import {
   forgotPassword,
   login,
   refreshToken,
+  resendVerificationEmail,
   resetPassword,
   signup,
   verifyAccount,
@@ -14,6 +15,8 @@ const auth = express.Router();
 auth.post("/signup", signup);
 
 auth.get("/verify-account/:token", verifyAccount);
+
+auth.post("/resend-verification-email", resendVerificationEmail);
 
 auth.post("/login", login);
 
