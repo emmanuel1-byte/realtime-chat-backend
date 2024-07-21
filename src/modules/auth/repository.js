@@ -9,16 +9,12 @@ async function createUser(data) {
     let session = await User.startSession();
     session.startTransaction();
 
-    const user = new User({
-      phone: data.phone,
-      email: data.email,
-      password: data.password,
-    });
+    const user = new User({ ...data });
     await user.save({ session });
 
     const profile = new Profile({
-      user_id: user._id,
-      display_photo_url:
+      user: user._id,
+      displayPhotoUrl:
         "https://i.pinimg.com/564x/0d/64/98/0d64989794b1a4c9d89bff571d3d5842.jpg",
       status: "Active",
     });
@@ -55,10 +51,10 @@ async function fetchUserByEmail(email) {
 
 async function updatePassword(userId, data) {
   try {
-    return await User.findOneAndUpdate({
-      _id: userId,
-      password: await bcrypt.hash(data.password, 10),
-    });
+    return await User.findOneAndUpdate(
+      { _id: userId },
+      { password: await bcrypt.hash(data.password, 10) },
+    );
   } catch (err) {
     logger.error(err.message);
     throw new Error(err);

@@ -2,10 +2,11 @@ import mongoose, { Schema } from "mongoose";
 
 const profileSchema = new Schema(
   {
-    user_id: { type: mongoose.Types.ObjectId, ref: "User", required: true },
-    fullname: { type: String },
-    status: { type: String },
-    display_photo_url: { type: String },
+    user: { type: mongoose.Types.ObjectId, ref: "User", required: true },
+    fullName: { type: String },
+    status: { type: String, required: true },
+    displayPhotoUrl: { type: String },
+    coverPhotoUrl: { type: String },
   },
   { timestamps: true },
 );
