@@ -1,6 +1,6 @@
 import logger from "../../utils/logger.js";
-import User from "../auth/model.js";
 import ChatRoom from "./model.js";
+import mongoose from "mongoose";
 
 async function create(userId, data, roomPhoto) {
   try {
@@ -56,7 +56,16 @@ async function deleteRoomById(roomId) {
 
 async function fetchUserById(userId) {
   try {
-    return await User.findById(userId);
+    return await mongoose.model("User").findById(userId);
+  } catch (err) {
+    logger.error(err.message);
+    throw new Error(err);
+  }
+}
+
+async function createMemeber(userId) {
+  try {
+    return await ChatRoom.create({ members: userId });
   } catch (err) {
     logger.error(err.message);
     throw new Error(err);
@@ -70,6 +79,7 @@ const repository = {
   update,
   deleteRoomById,
   fetchUserById,
+  createMemeber,
 };
 
 export default repository;

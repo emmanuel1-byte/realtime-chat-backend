@@ -15,3 +15,7 @@ export const updateRoomSchema = Joi.object({
 export const fetchRoomSchema = Joi.object({
   roomId: Joi.string().required(),
 });
+
+export const fetchUserSchema = Joi.object({
+  userId: Joi.string().required(),
+});

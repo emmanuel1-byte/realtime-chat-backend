@@ -13,6 +13,21 @@ const chatRoomSchema = new Schema(
         required: true,
       },
     ],
+    pendingApprovals: [
+      {
+        type: mongoose.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
+    ],
+
+    invites: [
+      {
+        type: mongoose.Types.ObjectId,
+        ref: "User",
+        required: true,
+      },
+    ],
   },
   { timestamps: true },
 );
