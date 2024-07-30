@@ -18,6 +18,8 @@ room.get("/:roomId", validateJwt, getRoom);
 
 room.put("/:roomId", validateJwt, updateRoom);
 
+room.patch("/:roomId/members/:userId", validateJwt);
+
 room.delete("/:roomId", validateJwt, deleteRoom);
 
 export default room;

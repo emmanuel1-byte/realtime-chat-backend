@@ -1,5 +1,5 @@
+import mongoose from "mongoose";
 import logger from "../../utils/logger.js";
-import User from "../auth/model.js";
 import Profile from "./model.js";
 
 async function updateProfile(userId, data, pofilePhotoUrl, coverPhotoUrl) {
@@ -38,7 +38,8 @@ async function fetchProfileById(profileId) {
 
 async function deleteUserById(userId) {
   try {
-    return await User.findByIdAndDelete({ _id: userId });
+    await mongoose.model("User").deleteOne({ _id: userId });
+    await mongoose.model("Profile").deleteOne({ user: userId });
   } catch (err) {
     logger.error(err.stack);
     throw new Error(err);

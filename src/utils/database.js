@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 dotenv.config();
 import logger from "./logger.js";
 const { DATABASE_URI } = process.env;
+import Message from "../modules/message/model.js";
 
 async function connectToDatabase() {
   try {

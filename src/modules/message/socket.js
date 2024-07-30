@@ -1,98 +1,233 @@
 import { Server } from "socket.io";
+import mongoose from "mongoose";
+import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 dotenv.config();
 const { JWT_SECRET } = process.env;
-import jwt from "jsonwebtoken";
-import logger from "../../utils/logger.js";
-import repository from "./repository.js";
-import uploadToLocalStore from "../../services/upload/localStorage.js";
 
 function initializeSocket(server) {
   let users = {};
-  const io = new Server(server, {
-    cors: { origin: "*" },
-  });
+  const io = new Server(server, { cors: { origin: "*" } });
 
-  // Authorization middleware
+  //Authorization middleware
   io.use((socket, next) => {
     try {
-      const accessToken = socket.handshake.auth.token.split(" ")[1];
+      const accessToken = socket.handshake.auth.token?.split(" ")[1];
+      if (!accessToken) next(new Error("Acesss token is required!"));
+
       const decoded = jwt.verify(accessToken, JWT_SECRET);
       users[socket.id] = decoded.sub;
       next();
     } catch (err) {
-      next(new Error("Validation failed"));
+      if (err instanceof jwt.TokenExpiredError) {
+        next(new Error("Access token expired!"));
+      }
+      next(new Error("Invalid token"));
     }
   });
 
-  io.on("connection", (socket) => {
-    console.log("User connected");
+  //This function get's called if the user tries to join a room or perform any action
+  async function verifyRoomAccess(socket, roomId, next) {
+    try {
+      const room = await mongoose.model("ChatRoom").findById(roomId);
+      if (!room) {
+        throw new Error("Room not found");
+      }
 
-    socket.on("direct-message", async (message, recipientId, fileUrl) => {
-      try {
-        const senderId = users[socket.id];
-        const previousMessages = await repository.fetchChat(
-          senderId,
-          recipientId,
-        );
-        logger.info(
-          `Previous messages between ${senderId} and ${recipientId}: ${JSON.stringify(previousMessages)}`,
-        );
-        console.log(
-          `Previous messages between ${senderId} and ${recipientId}: ${JSON.stringify(previousMessages)}`,
-        );
-        const user = await repository.fetchUserById(recipientId);
-        if (!user) throw new Error("User does not exist");
-        const recepientSocketId = Object.keys(users).find(
-          (key) => users[key] === recipientId,
-        );
-        if (recepientSocketId) {
-          socket
-            .to(recepientSocketId)
-            .emit("direct-message", { senderId, message });
-        } else {
-          //save this in an undeelivered table
+      if (!room.members.includes(users[socket.id])) {
+        throw new Error("You are not a member of this room");
+      }
+      socket.join(room.roomName);
+      socket.room = room;
+
+      next();
+    } catch (err) {
+      next(err);
+    }
+  }
+
+  io.on("connection", async (socket) => {
+    console.log(`${socket.id}: connected`);
+
+    socket.on("join-room", async (roomId) => {
+      verifyRoomAccess(socket, roomId, async (error) => {
+        if (error) {
+          socket.emit("error", { message: error.message });
+          return;
         }
-        await repository.createChat(senderId, recipientId, message, fileUrl);
+        const previousMessages = await mongoose
+          .model("Message")
+          .find({ chatRoom: roomId, createdAt: -1 });
+        console.log("Helo");
+
+        io.to(socket.room.roomName).emit(
+          "fetch-previous-room-messages",
+          previousMessages,
+        );
+      });
+    });
+
+    socket.on("send-room-message", async (roomId, message) => {
+      verifyRoomAccess(socket, roomId, async (error) => {
+        if (error) {
+          socket.emit("error", { message: error.message });
+          return;
+        }
+        const newMessage = await mongoose.model("Message").create({
+          chatRoom: roomId,
+          content: message,
+          sender: users[socket.id],
+          recipient: socket.room.members.map((user) => user),
+        });
+
+        io.to(socket.room.roomName).emit("new-room-message", newMessage);
+      });
+
+      socket.on("fetch-private-messages", async (recipientId) => {
+        try {
+          const user = await mongoose.model("User").findById(recipientId);
+          if (!user) {
+            socket.emit("error", { message: "User not found" });
+            return;
+          }
+
+          const previousMessages = await mongoose.model("Message").find({
+            sender: users[socket.id],
+            recipient: recipientId,
+          });
+
+          io.to(users[socket.id]).emit(
+            "previous-private-messages",
+            previousMessages,
+          );
+        } catch (err) {
+          socket.emit("error", { message: err.message });
+        }
+      });
+
+      socket.on("send-private-message", async (recipientId, message) => {
+        try {
+          const user = await mongoose.model("User").findById(recipientId);
+          if (!user) {
+            socket.emit("error", { message: "User not found" });
+            return;
+          }
+
+          const newMessage = await mongoose.model("Message").create({
+            sender: users[socket.id],
+            recipient: recipientId,
+            content: message,
+          });
+          const recipientSocket = Object.keys(users).find(
+            (key) => users[key] === recipientId,
+          );
+          io.to(users[socket.id]).emit("new-private-message", newMessage);
+
+          if (recipientSocket) {
+            io.to(recipientSocket).emit("new-private-message", newMessage);
+          }
+        } catch (err) {
+          socket.emit("error", { message: err.message });
+        }
+      });
+    });
+
+    socket.on("update-private-message", async (messageId, content) => {
+      try {
+        const message = await mongoose
+          .model("Message")
+          .findByIdAndUpdate(messageId, { content: content }, { new: true });
+
+        if (!message) {
+          socket.emit("error", { message: "Message not found" });
+          return;
+        }
+
+        const senderSocket = Object.keys(users).find(
+          (key) => users[key] === message.sender,
+        );
+        const recipientSocket = Object.keys(users).find(
+          (key) => users[key] === message.recipient,
+        );
+        if (senderSocket) {
+          socket.to(message.recipient).emit("message-updated", { messageId });
+        }
+
+        if (recipientSocket) {
+          socket.to(message.sender).emit("message-updated", { messageId });
+        }
       } catch (err) {
-        logger.error(err.message);
-        socket.emit("error", { messag: err.message });
+        socket.emit("error", { message: err.message });
       }
     });
 
-    socket.on("chat-room-message", async (roomId, message, uploadedFile) => {
+    socket.on("update-group-message", (roomId, messageId, content) => {
+      verifyRoomAccess(socket, roomId, async (error) => {
+        if (error) {
+          socket.emit("error", { message: err.message });
+          return;
+        }
+        const message = await mongoose
+          .model("Message")
+          .findByIdAndUpdate(messageId, { content: content }, { new: true });
+        if (!message) {
+          socket.emit("error", { message: "Message not found" });
+        }
+
+        socket.to(socket.room.roomName).emit("message-updated", { message });
+      });
+    });
+
+    socket.on("delete-private-message", async (messageId) => {
       try {
-        const chat = {};
-        const senderId = users[socket.id];
-        //check if room exist
-        const room = await "";
-        if (!rooom) throw new Error("Room not found!");
-        socket
-          .to(room.members)
-          .emit("chat-room-message", { senderId, message });
-        if (fileUrl) {
-          const [fileUrl] = await uploadToLocalStore(uploadedFile);
-          chat[senderId];
-          await repository.createChat(senderId, "members", message, fileUrl);
+        const message = await mongoose
+          .model("Message")
+          .findByIdAndDelete(messageId);
+
+        if (!message) {
+          socket.emit("error", { message: "Message not found" });
+          return;
+        }
+
+        const senderSocket = Object.keys(users).find(
+          (key) => users[key] === message.sender,
+        );
+        const recipientSocket = Object.keys(users).find(
+          (key) => users[key] === message.recipient,
+        );
+        if (senderSocket) {
+          socket.to(senderSocket).emit("message-deleted", { messageId });
+        }
+
+        if (recipientSocket) {
+          socket.to(recipientSocket).emit("message-deleted", { messageId });
         }
       } catch (err) {
-        logger.error(err.message);
-        throw new Error(err);
+        socket.emit("error", { message: err.message });
       }
     });
 
-    socket.on("join-room", (roomName) => {
-      //first check if the room exist if it does then check if the user is a member or not;
-      socket.join(roomName);
+    socket.on("delete-group-message", (roomId, messageId) => {
+      verifyRoomAccess(socket, roomId, async (error) => {
+        if (error) {
+          socket.emit("error", { message: error.message });
+          return;
+        }
+        const message = await mongoose
+          .model("Message")
+          .findByIdAndDelete(messageId)
+          .populate("chatRoom", "roomName");
+        if (!message) {
+          socket.emit("error", { message: "Message not found" });
+        }
+        socket.to(socket.room.roomName).emit("message-deleted", { messageId });
+      });
     });
 
-    socket.on("leave-room", (roomName) => {
-      //first check if the room exist if it does and the user is a member proceed to leave the room
-      socket.leave(roomName);
-    });
-
+    //when a client is disconnected from the server delete the user property from the users object
     socket.on("disconnect", () => {
-      console.log("User disconnected");
+      delete users[socket.id];
+      console.log(`${socket.id}: disconnected`);
     });
   });
 }

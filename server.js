@@ -3,6 +3,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 import { createServer } from "node:http";
 import cookieParser from "cookie-parser";
+import cors from "cors";
 
 import initializeSocket from "./src/modules/message/socket.js";
 import logger from "./src/utils/logger.js";
@@ -20,6 +21,9 @@ const server = createServer(app);
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
+app.use(
+  cors({ origin: "*", methods: ["POST", "GET", "PATCH", "PUT", "DELETE"] }),
+);
 
 app.get("/", (req, res) => {
   return respond(res, 200, "chat-systen-sevice is running...");
