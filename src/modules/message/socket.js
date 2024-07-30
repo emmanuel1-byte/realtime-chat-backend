@@ -13,16 +13,17 @@ function initializeSocket(server) {
   io.use((socket, next) => {
     try {
       const accessToken = socket.handshake.auth.token?.split(" ")[1];
-      if (!accessToken) next(new Error("Acesss token is required!"));
+      if (!accessToken)
+        next(socket.emit("error", { message: "Acesss token is required!" }));
 
       const decoded = jwt.verify(accessToken, JWT_SECRET);
       users[socket.id] = decoded.sub;
       next();
     } catch (err) {
       if (err instanceof jwt.TokenExpiredError) {
-        next(new Error("Access token expired!"));
+        next(socket.emit("error", { message: "Access token expired!" }));
       }
-      next(new Error("Invalid token"));
+      next(socket.emit("error", { message: "Invalid token" }));
     }
   });
 
@@ -58,7 +59,6 @@ function initializeSocket(server) {
         const previousMessages = await mongoose
           .model("Message")
           .find({ chatRoom: roomId, createdAt: -1 });
-        console.log("Helo");
 
         io.to(socket.room.roomName).emit(
           "fetch-previous-room-messages",
