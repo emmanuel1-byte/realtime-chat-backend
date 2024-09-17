@@ -23,9 +23,28 @@ async function fetchRooms() {
     throw new Error(err);
   }
 }
+
 async function fetchRoomById(roomId) {
   try {
     return await ChatRoom.findById(roomId);
+  } catch (err) {
+    logger.error(err.message);
+    throw new Error(err);
+  }
+}
+
+async function fetchRoomByName(data) {
+  try {
+    return await ChatRoom.findOne({ roomName: data.roomName });
+  } catch (err) {
+    logger.error(err.message);
+    throw new Error(err);
+  }
+}
+
+async function fetchAdminById(userId) {
+  try {
+    return await ChatRoom.findOne({ admin: userId });
   } catch (err) {
     logger.error(err.message);
     throw new Error(err);
@@ -37,7 +56,7 @@ async function update(roomId, data, roomPhoto) {
     return await ChatRoom.findOneAndUpdate(
       { _id: roomId },
       { ...data, roomPhotoUrl: roomPhoto },
-      { new: true },
+      { new: true }
     );
   } catch (err) {
     logger.error(err.message);
@@ -79,6 +98,8 @@ const repository = {
   update,
   deleteRoomById,
   fetchUserById,
+  fetchAdminById,
+  fetchRoomByName,
   createMemeber,
 };
 

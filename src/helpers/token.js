@@ -21,6 +21,15 @@ export function generateVerificationToken(userId) {
   };
 }
 
+export function generateMagicToken(userId) {
+  return {
+    magicToken: jwt.sign({ sub: userId }, JWT_SECRET, {
+      algorithm: "HS256",
+      expiresIn: "1h",
+    }),
+  };
+}
+
 export function generatePasswordRestToken(userId) {
   return {
     resetPasswordToken: jwt.sign({ sub: userId }, JWT_SECRET, {
