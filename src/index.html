@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Socket.IO Chat</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0;
+            padding: 20px;
+        }
+        #chat {
+            width: 100%;
+            max-width: 600px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            overflow: hidden;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+        #messages {
+            list-style-type: none;
+            margin: 0;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            background-color: #f9f9f9;
+        }
+        #messages li {
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        #message-form {
+            display: flex;
+            padding: 10px;
+            background-color: #fff;
+        }
+        #message-form input {
+            flex: 1;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        #message-form button {
+            padding: 10px;
+            border: none;
+            background-color: #007bff;
+            color: #fff;
+            border-radius: 5px;
+            margin-left: 10px;
+            cursor: pointer;
+        }
+        #message-form button:hover {
+            background-color: #0056b3;
+        }
+    </style>
+</head>
+<body>
+    <div id="chat">
+        <ul id="messages"></ul>
+        <form id="message-form">
+            <input id="message-input" autocomplete="off" placeholder="Type a message..." />
+            <button id="send-button">Send</button>
+        </form>
+    </div>
+
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+    <script>
+        // Replace with your server URL
+        const SERVER_URL = 'http://localhost:3000';
+
+        // Connect to the Socket.IO server
+        const socket = io(SERVER_URL, {
+            auth: {
+                token: 'your_access_token_here' // Replace with a valid token
+            }
+        });
+
+        // Handle incoming messages
+        socket.on('new-room-message', (message) => {
+            const messages = document.getElementById('messages');
+            const li = document.createElement('li');
+            li.textContent = `Room: ${message.content} (From: ${message.sender})`;
+            messages.appendChild(li);
+        });
+
+        socket.on('new-private-message', (message) => {
+            const messages = document.getElementById('messages');
+            const li = document.createElement('li');
+            li.textContent = `Private: ${message.content} (From: ${message.sender})`;
+            messages.appendChild(li);
+        });
+
+        socket.on('error', (data) => {
+            console.error('Error:', data.message);
+        });
+
+        document.getElementById('message-form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const input = document.getElementById('message-input');
+            const message = input.value;
+            if (message) {
+                // Replace roomId with the actual room ID or handle private messages
+                const roomId = 'exampleRoomId';
+                socket.emit('send-room-message', roomId, message);
+                input.value = '';
+            }
+        });
+    </script>
+</body>
+</html>

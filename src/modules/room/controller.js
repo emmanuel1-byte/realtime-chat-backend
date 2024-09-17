@@ -13,10 +13,15 @@ export async function createChatRoom(req, res, next) {
     const validatedData = await createRoomSchema.validateAsync(req.body);
     const [roomPhotoUrl] = await uploadToLocalStore(req.file);
 
+    const room = await repository.fetchRoomByName(validatedData);
+    if (room) {
+      return respond(res, 409, "Room already exist");
+    }
+
     const newRoom = await repository.create(
       req.userId,
       validatedData,
-      roomPhotoUrl,
+      roomPhotoUrl
     );
     return respond(res, 200, "Room created successfully", { room: newRoom });
   } catch (err) {
@@ -70,11 +75,14 @@ export async function updateRoom(req, res, next) {
     const params = await fetchRoomSchema.validateAsync(req.params);
     const validatedData = await updateRoomSchema.validateAsync(req.body);
 
+    const user = await repository.fetchAdminById(req.userId);
+    if (!user) return respond(res, 403, "You are not an Admin");
+
     const [roomPhotoUrl] = await uploadToLocalStore(req.file);
     const room = await repository.update(
       params.roomId,
       validatedData,
-      roomPhotoUrl,
+      roomPhotoUrl
     );
 
     if (!room) return respond(res, 404, "Room not found");
@@ -88,6 +96,9 @@ export async function deleteRoom(req, res, next) {
   try {
     const params = await fetchRoomSchema.validateAsync(req.params);
     const room = await repository.deleteRoomById(params.roomId);
+
+    const user = await repository.fetchAdminById(req.userId);
+    if (!user) return respond(res, 403, "You are not an Admin");
 
     if (!room) return respond(res, 404, "Room not found");
     return respond(res, 200, "Room deleted succesfully");

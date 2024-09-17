@@ -10,10 +10,12 @@ import {
   forgotPasswordSchema,
   updatePasswordSchema,
   resendVerificationEmailSchema,
+  magicLinkLoginSchema,
 } from "./schema.js";
 import mailer from "../../services/email/mail.js";
 import {
   generateAccessToken,
+  generateMagicToken,
   generatePasswordRestToken,
   generateRefreshToken,
   generateVerificationToken,
@@ -26,7 +28,7 @@ export async function signup(req, res, next) {
   try {
     const validatedData = await signupSchema.validateAsync(req.body);
     const existingUser = await respository.fetchUserByEmail(
-      validatedData.email,
+      validatedData.email
     );
     if (existingUser) return respond(res, 409, "Email already exist");
     const newUser = await respository.createUser(validatedData);
@@ -48,7 +50,7 @@ export async function verifyAccount(req, res, next) {
     const { userId } = verifyJwt(params.token);
     const user = await respository.fetchUserById(userId);
     if (!user) return respond(res, 404, "User does not exist");
-    if (user.verified === false) {
+    if (!user.verified) {
       user.verified = true;
       await user.save();
     }
@@ -58,10 +60,48 @@ export async function verifyAccount(req, res, next) {
   }
 }
 
+export async function magicLinkLogin(req, res, next) {
+  try {
+    const validatedData = await magicLinkLoginSchema.validateAsync(req.body);
+
+    const user = await respository.fetchUserByEmail(validatedData.email);
+    if (!user) return respond(res, 404, "Account does not exist");
+
+    const { magicToken } = generateMagicToken(user._id);
+
+    mailer.emit("sendMagicLinkEmail", {
+      to: validatedData.email,
+      subject: "Magic Link",
+      body: `${HOSTNAME}/api/auth/verify-magic-link/${magicToken}`,
+    });
+
+    return respond(res, 200, "Magic Link sent to your email");
+  } catch (err) {
+    next(err);
+  }
+}
+
+export async function verifyMagicToken(req, res, next) {
+  try {
+    const { userId } = verifyJwt(req.params.token);
+ 
+    const user = await respository.fetchUserById(userId);
+    if (!user) return respond(res, 404, "Account does not exist");
+
+    const { accessToken } = generateAccessToken(user._id);
+    const { refreshToken } = generateRefreshToken(user._id);
+    setCookie(res, refreshToken);
+
+    return respond(res, 200, "Login sucessfull", { access_token: accessToken });
+  } catch (err) {
+    next(err);
+  }
+}
+
 export async function resendVerificationEmail(req, res, next) {
   try {
     const validatedData = await resendVerificationEmailSchema.validateAsync(
-      req.body,
+      req.body
     );
     const user = await respository.fetchUserByEmail(validatedData.email);
     if (!user) return respond(res, 404, "User not found");
@@ -73,6 +113,7 @@ export async function resendVerificationEmail(req, res, next) {
       subject: "Email verification",
       body: `${HOSTNAME}/api/auth/verify-account/${verificationToken}`,
     });
+
     return respond(res, 200, "Verfication email sent successfully");
   } catch (err) {
     next(err);
@@ -87,7 +128,7 @@ export async function login(req, res, next) {
     if (user.verified === false) return respond(res, 401, "verify your email");
     const isPasswordValid = await bcrypt.compare(
       validatedData.password,
-      user.password,
+      user.password
     );
     if (!isPasswordValid) return respond(res, 401, "Invalid login credentials");
     const { accessToken } = generateAccessToken(user._id);

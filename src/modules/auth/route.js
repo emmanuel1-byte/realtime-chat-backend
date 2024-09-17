@@ -2,11 +2,13 @@ import express from "express";
 import {
   forgotPassword,
   login,
+  magicLinkLogin,
   refreshToken,
   resendVerificationEmail,
   resetPassword,
   signup,
   verifyAccount,
+  verifyMagicToken,
   verifyPasswordResetToken,
 } from "./controller.js";
 import validateJwt from "../../middlewares/auth.js";
@@ -19,6 +21,10 @@ auth.get("/verify-account/:token", verifyAccount);
 auth.post("/resend-verification-email", resendVerificationEmail);
 
 auth.post("/login", login);
+
+auth.post("/magic-link-login", magicLinkLogin);
+
+auth.get("/verify-magic-link/:token", verifyMagicToken)
 
 auth.post("/forgot-password", forgotPassword);
 

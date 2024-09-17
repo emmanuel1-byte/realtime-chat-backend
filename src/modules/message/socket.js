@@ -50,23 +50,6 @@ function initializeSocket(server) {
   io.on("connection", async (socket) => {
     console.log(`${socket.id}: connected`);
 
-    socket.on("join-room", async (roomId) => {
-      verifyRoomAccess(socket, roomId, async (error) => {
-        if (error) {
-          socket.emit("error", { message: error.message });
-          return;
-        }
-        const previousMessages = await mongoose
-          .model("Message")
-          .find({ chatRoom: roomId, createdAt: -1 });
-
-        io.to(socket.room.roomName).emit(
-          "fetch-previous-room-messages",
-          previousMessages,
-        );
-      });
-    });
-
     socket.on("send-room-message", async (roomId, message) => {
       verifyRoomAccess(socket, roomId, async (error) => {
         if (error) {
@@ -98,7 +81,7 @@ function initializeSocket(server) {
 
           io.to(users[socket.id]).emit(
             "previous-private-messages",
-            previousMessages,
+            previousMessages
           );
         } catch (err) {
           socket.emit("error", { message: err.message });
@@ -119,7 +102,7 @@ function initializeSocket(server) {
             content: message,
           });
           const recipientSocket = Object.keys(users).find(
-            (key) => users[key] === recipientId,
+            (key) => users[key] === recipientId
           );
           io.to(users[socket.id]).emit("new-private-message", newMessage);
 
@@ -132,94 +115,194 @@ function initializeSocket(server) {
       });
     });
 
+    // Room join event with approval mechanism
+    socket.on("request-join-room", async (roomId) => {
+      const room = await mongoose.model("ChatRoom").findById(roomId);
+      if (!room) {
+        socket.emit("error", { message: "Room not found" });
+        return;
+      }
+      if (room.admin === users[socket.id]) {
+        socket.emit("error", { message: "You already own this room" });
+        return;
+      }
+
+      room.pendingApprovals.push(users[socket.id]);
+      await room.save();
+
+      // Notify room owner of join request
+      const ownerSocket = Object.keys(users).find(
+        (key) => users[key] === room.admin
+      );
+      if (ownerSocket) {
+        io.to(ownerSocket).emit("pending-join-request", {
+          userId: users[socket.id],
+          roomId,
+        });
+      }
+    });
+
+    // Room owner approves the join request
+    socket.on("approve-join-request", async (roomId, userId) => {
+      const room = await mongoose.model("ChatRoom").findById(roomId);
+      if (!room || room.admin !== users[socket.id]) {
+        socket.emit("error", {
+          message: "Only Admin can approve join requests",
+        });
+        return;
+      }
+
+      room.members.push(userId);
+      room.pendingApprovals = room.pendingApprovals.filter(
+        (member) => member !== userId
+      );
+      await room.save();
+
+      // Notify approved user
+      const userSocket = Object.keys(users).find(
+        (key) => users[key] === userId
+      );
+      if (userSocket) {
+        io.to(userSocket).emit("join-approved", { roomId });
+      }
+    });
+
     socket.on("update-private-message", async (messageId, content) => {
       try {
-        const message = await mongoose
-          .model("Message")
-          .findByIdAndUpdate(messageId, { content: content }, { new: true });
+        // Find the message by its ID
+        const message = await mongoose.model("Message").findById(messageId);
 
+        // Check if the message exists
         if (!message) {
           socket.emit("error", { message: "Message not found" });
           return;
         }
 
-        const senderSocket = Object.keys(users).find(
-          (key) => users[key] === message.sender,
-        );
-        const recipientSocket = Object.keys(users).find(
-          (key) => users[key] === message.recipient,
-        );
-        if (senderSocket) {
-          socket.to(message.recipient).emit("message-updated", { messageId });
+        // Check if the sender of the message is the current user
+        if (message.sender !== users[socket.id]) {
+          socket.emit("error", {
+            message: "You are not authorized to update this message",
+          });
+          return;
         }
 
+        // Update the message content
+        message.content = content;
+        await message.save();
+
+        // Emit an event to the sender to confirm the update
+        socket.emit("message-updated", { messageId, content });
+
+        // Notify the recipient about the updated message
+        const recipientSocket = Object.keys(users).find(
+          (key) => users[key] === message.recipient
+        );
         if (recipientSocket) {
-          socket.to(message.sender).emit("message-updated", { messageId });
+          io.to(recipientSocket).emit("message-updated", {
+            messageId,
+            content,
+          });
         }
       } catch (err) {
         socket.emit("error", { message: err.message });
       }
-    });
-
-    socket.on("update-group-message", (roomId, messageId, content) => {
-      verifyRoomAccess(socket, roomId, async (error) => {
-        if (error) {
-          socket.emit("error", { message: err.message });
-          return;
-        }
-        const message = await mongoose
-          .model("Message")
-          .findByIdAndUpdate(messageId, { content: content }, { new: true });
-        if (!message) {
-          socket.emit("error", { message: "Message not found" });
-        }
-
-        socket.to(socket.room.roomName).emit("message-updated", { message });
-      });
     });
 
     socket.on("delete-private-message", async (messageId) => {
       try {
-        const message = await mongoose
-          .model("Message")
-          .findByIdAndDelete(messageId);
+        // Find the message by its ID
+        const message = await mongoose.model("Message").findById(messageId);
 
+        // Check if the message exists
         if (!message) {
           socket.emit("error", { message: "Message not found" });
           return;
         }
 
-        const senderSocket = Object.keys(users).find(
-          (key) => users[key] === message.sender,
-        );
-        const recipientSocket = Object.keys(users).find(
-          (key) => users[key] === message.recipient,
-        );
-        if (senderSocket) {
-          socket.to(senderSocket).emit("message-deleted", { messageId });
+        // Check if the sender of the message is the current user
+        if (message.sender !== users[socket.id]) {
+          socket.emit("error", {
+            message: "You are not authorized to delete this message",
+          });
+          return;
         }
 
+        // Delete the message
+        await mongoose.model("Message").findByIdAndDelete(messageId);
+
+        // Emit a message-deleted event to the sender
+        socket.emit("message-deleted", { messageId });
+
+        // Optionally, notify the recipient that the message was deleted (if needed)
+        const recipientSocket = Object.keys(users).find(
+          (key) => users[key] === message.recipient
+        );
         if (recipientSocket) {
-          socket.to(recipientSocket).emit("message-deleted", { messageId });
+          io.to(recipientSocket).emit("message-deleted", { messageId });
         }
       } catch (err) {
         socket.emit("error", { message: err.message });
       }
     });
 
-    socket.on("delete-group-message", (roomId, messageId) => {
+    // Update Group Message with sender or admin check
+    socket.on("update-group-message", async (roomId, messageId, content) => {
       verifyRoomAccess(socket, roomId, async (error) => {
         if (error) {
           socket.emit("error", { message: error.message });
           return;
         }
-        const message = await mongoose
-          .model("Message")
-          .findByIdAndDelete(messageId)
-          .populate("chatRoom", "roomName");
+
+        const message = await mongoose.model("Message").findById(messageId);
         if (!message) {
           socket.emit("error", { message: "Message not found" });
+          return;
         }
+
+        const room = await mongoose.model("ChatRoom").findById(roomId);
+
+        // Allow only the sender or the room owner (admin) to update
+        if (
+          message.sender !== users[socket.id] &&
+          room.admin !== users[socket.id]
+        ) {
+          socket.emit("error", { message: "Unauthorized action" });
+          return;
+        }
+
+        message.content = content;
+        await message.save();
+
+        socket.to(socket.room.roomName).emit("message-updated", { message });
+      });
+    });
+
+    // Delete Group Message with sender or admin check
+    socket.on("delete-group-message", async (roomId, messageId) => {
+      verifyRoomAccess(socket, roomId, async (error) => {
+        if (error) {
+          socket.emit("error", { message: error.message });
+          return;
+        }
+
+        const message = await mongoose.model("Message").findById(messageId);
+        if (!message) {
+          socket.emit("error", { message: "Message not found" });
+          return;
+        }
+
+        const room = await mongoose.model("ChatRoom").findById(roomId);
+
+        // Allow only the sender or the room owner (admin) to delete
+        if (
+          message.sender !== users[socket.id] &&
+          room.admin !== users[socket.id]
+        ) {
+          socket.emit("error", { message: "Unauthorized action" });
+          return;
+        }
+
+        await mongoose.model("Message").findByIdAndDelete(messageId);
         socket.to(socket.room.roomName).emit("message-deleted", { messageId });
       });
     });
